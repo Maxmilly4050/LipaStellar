@@ -1,0 +1,72 @@
+{% extends 'payments/base.html' %}
+
+{% block title %}Payment Successful{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card shadow border-success">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0 text-center">✅ Payment Successful!</h4>
+            </div>
+            <div class="card-body">
+                <div class="text-center mb-4">
+                    <h5 class="display-6 fw-bold text-success">{{ transaction.amount_tzs }} TZS</h5>
+                    <p class="text-muted">≈ {{ transaction.amount_usdc|floatformat:2 }} USDC sent to <strong>{{ transaction.merchant.business_name }}</strong></p>
+                </div>
+                
+                <div class="alert alert-light border">
+                    <strong>Transaction Hash:</strong><br>
+                    <code class="text-break">{{ tx_hash }}</code>
+                </div>
+                
+                <div class="card mb-4 bg-primary text-white text-center">
+                    <div class="card-body">
+                        <h5>🔗 View on Stellar Testnet Explorer</h5>
+                        <p>Click the button below to see your transaction live on the blockchain.</p>
+                        <a href="{{ explorer_tx_url }}" target="_blank" class="btn btn-light btn-lg px-5">
+                            View on Explorer ↗
+                        </a>
+                        <p class="mt-2 small mb-0 opacity-75">This opens the Stellar Expert Testnet Explorer showing your transaction details.</p>
+                    </div>
+                </div>
+                
+                <div class="card mb-4 border-light shadow-sm">
+                    <div class="card-header bg-secondary bg-opacity-10">
+                        <h6 class="mb-0">📋 Transaction Details</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-hover mb-0">
+                            <tr>
+                                <th class="ps-3 w-25">Merchant:</th>
+                                <td>{{ transaction.merchant.business_name }} ({{ transaction.merchant.username }})</td>
+                            </tr>
+                            <tr>
+                                <th class="ps-3">Amount:</th>
+                                <td>{{ transaction.amount_tzs }} TZS ≈ {{ transaction.amount_usdc|floatformat:7 }} USDC</td>
+                            </tr>
+                            <tr>
+                                <th class="ps-3">Customer Phone:</th>
+                                <td>{{ transaction.customer_phone }}</td>
+                            </tr>
+                            <tr>
+                                <th class="ps-3">Memo:</th>
+                                <td><code>{{ transaction.memo }}</code></td>
+                            </tr>
+                            <tr>
+                                <th class="ps-3">Date:</th>
+                                <td>{{ transaction.created_at }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <a href="{% url 'payment_form' %}" class="btn btn-success">Make Another Payment</a>
+                    <a href="{% url 'index' %}" class="btn btn-link text-muted">Return to Home</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

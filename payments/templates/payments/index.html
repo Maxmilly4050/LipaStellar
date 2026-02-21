@@ -1,0 +1,50 @@
+{% extends 'payments/base.html' %}
+
+{% block title %}Welcome to LipaStellar{% endblock %}
+
+{% block content %}
+<div class="row align-items-center py-5">
+    <div class="col-md-6">
+        <h1 class="display-4 fw-bold">Instant Payments for Tanzanian Merchants</h1>
+        <p class="lead">LipaStellar leverages the Stellar blockchain to provide near-zero fee, instant payments for businesses in Tanzania using USDC.</p>
+        <div class="d-grid gap-2 d-md-flex justify-content-md-start mt-4">
+            <a href="{% url 'payment_form' %}" class="btn btn-primary btn-lg px-4 me-md-2">Pay Now</a>
+            <a href="{% url 'merchant_register' %}" class="btn btn-outline-secondary btn-lg px-4">Register as Merchant</a>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card shadow">
+            <div class="card-body p-5">
+                <h3>Why LipaStellar?</h3>
+                <ul class="list-unstyled mt-3">
+                    <li class="mb-2">✅ <strong>Low Fees:</strong> Fraction of a cent per transaction.</li>
+                    <li class="mb-2">✅ <strong>Instant:</strong> Settlements in seconds, not days.</li>
+                    <li class="mb-2">✅ <strong>Interoperable:</strong> Built on the open Stellar network.</li>
+                    <li class="mb-2">✅ <strong>Secure:</strong> Encrypted keys and blockchain transparency.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-5 text-center">
+    <div class="col-md-4">
+        <div class="p-3">
+            <h4>For Customers</h4>
+            <p>Simply enter the merchant's username and the amount in TZS. We handle the conversion to USDC and submit it to the blockchain.</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="p-3">
+            <h4>For Merchants</h4>
+            <p>Get a unique @username, a Stellar wallet, and a dashboard to track all your incoming payments in real-time.</p>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="p-3">
+            <h4>Blockchain Proof</h4>
+            <p>Every single transaction is recorded on the Stellar Testnet and can be verified on the explorer instantly.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

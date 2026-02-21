@@ -1,0 +1,63 @@
+{% extends 'payments/base.html' %}
+
+{% block title %}Transaction History{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h1 class="h3">Transaction History</h1>
+        <p class="text-muted">Detailed log of all incoming USDC payments on the Stellar testnet.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Date & Time</th>
+                                <th>Amount (TZS)</th>
+                                <th>Amount (USDC)</th>
+                                <th>Customer Phone</th>
+                                <th>Memo</th>
+                                <th>Status</th>
+                                <th>Transaction Hash</th>
+                                <th class="text-end pe-4">Blockchain</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for tx in transactions %}
+                            <tr>
+                                <td class="ps-4 text-nowrap">
+                                    {{ tx.created_at|date:"d M Y, H:i:s" }}
+                                </td>
+                                <td class="fw-bold text-nowrap">{{ tx.amount_tzs }} TZS</td>
+                                <td class="text-nowrap">{{ tx.amount_usdc|floatformat:7 }} USDC</td>
+                                <td>{{ tx.customer_phone }}</td>
+                                <td><code>{{ tx.memo }}</code></td>
+                                <td><span class="badge bg-success rounded-pill">Completed</span></td>
+                                <td><code class="small text-muted">{{ tx.transaction_hash|slice:":12" }}...</code></td>
+                                <td class="text-end pe-4">
+                                    <a href="{{ TESTNET_EXPLORER_URL }}/tx/{{ tx.transaction_hash }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                        View ↗
+                                    </a>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="8" class="text-center py-5 text-muted">
+                                    No transactions found.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
