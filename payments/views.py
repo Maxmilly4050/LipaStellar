@@ -104,27 +104,45 @@ def payment_form(request):
             memo = f"{customer_phone[-6:]}{datetime.datetime.now().strftime('%H%M')}"
             
             try:
-                # Get customer account (create and fund if doesn't exist/is low)
-                customer = stellar_utils.get_or_create_customer_account()
+                # Determine source account for payment
+                if request.user.is_authenticated:
+                    try:
+                        merchant_payer = request.user.merchant
+                        from_secret = merchant_payer.get_secret_key()
+                        from_public = merchant_payer.stellar_public_key
+                        payer_label = f"Merchant: {merchant_payer.business_name}"
+                    except Merchant.DoesNotExist:
+                        # Fallback for generic authenticated users if no merchant profile
+                        customer = stellar_utils.get_or_create_customer_account()
+                        from_secret = customer.secret
+                        from_public = customer.public_key
+                        payer_label = "Demo Customer"
+                else:
+                    # Anonymous payment from demo account
+                    customer = stellar_utils.get_or_create_customer_account()
+                    from_secret = customer.secret
+                    from_public = customer.public_key
+                    payer_label = "Demo Customer"
                 
                 # Check balance before sending payment
-                balances = stellar_utils.get_account_balances(customer.public_key)
+                balances = stellar_utils.get_account_balances(from_public)
                 xlm_balance = next((b['balance'] for b in balances if b['asset'] == 'XLM'), '0')
                 
-                if Decimal(xlm_balance) < amount_xlm:
-                    # Try to trigger another funding if it's still too low
-                    stellar_utils.fund_account(customer.public_key)
-                    # Re-check balance
-                    balances = stellar_utils.get_account_balances(customer.public_key)
-                    xlm_balance = next((b['balance'] for b in balances if b['asset'] == 'XLM'), '0')
+                if Decimal(xlm_balance) < amount_xlm + Decimal('0.0001'):  # 0.0001 XLM for fee
+                    # Only try friendbot funding for demo customer
+                    if not request.user.is_authenticated:
+                        stellar_utils.fund_account(from_public)
+                        # Re-check balance
+                        balances = stellar_utils.get_account_balances(from_public)
+                        xlm_balance = next((b['balance'] for b in balances if b['asset'] == 'XLM'), '0')
                     
-                    if Decimal(xlm_balance) < amount_xlm:
-                        messages.error(request, f"Insufficient XLM balance. Required: {amount_xlm}, Available: {xlm_balance}")
+                    if Decimal(xlm_balance) < amount_xlm + Decimal('0.0001'):
+                        messages.error(request, f"Insufficient XLM balance for {payer_label}. Required: {amount_xlm + Decimal('0.0001')}, Available: {xlm_balance}")
                         return render(request, 'payments/payment_form.html', {'form': form})
 
                 # Send payment
                 tx_hash = stellar_utils.send_xlm_payment(
-                    from_secret=customer.secret,
+                    from_secret=from_secret,
                     to_public=merchant.stellar_public_key,
                     amount_xlm=amount_xlm,
                     memo_text=memo
