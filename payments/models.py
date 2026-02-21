@@ -42,7 +42,7 @@ class Transaction(models.Model):
     merchant = models.ForeignKey(Merchant, on_delete=models.CASCADE)
     transaction_hash = models.CharField(max_length=64, unique=True)
     amount_tzs = models.DecimalField(max_digits=12, decimal_places=2)
-    amount_usdc = models.DecimalField(max_digits=12, decimal_places=7)
+    amount_xlm = models.DecimalField(max_digits=12, decimal_places=7)
     customer_phone = models.CharField(max_length=15)
     memo = models.CharField(max_length=28)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='completed')

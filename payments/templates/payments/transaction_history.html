@@ -6,7 +6,7 @@
 <div class="row mb-4">
     <div class="col-md-12">
         <h1 class="h3">Transaction History</h1>
-        <p class="text-muted">Detailed log of all incoming USDC payments on the Stellar testnet.</p>
+        <p class="text-muted">Detailed log of all incoming XLM payments on the Stellar testnet.</p>
     </div>
 </div>
 
@@ -20,7 +20,7 @@
                             <tr>
                                 <th class="ps-4">Date & Time</th>
                                 <th>Amount (TZS)</th>
-                                <th>Amount (USDC)</th>
+                                <th>Amount (XLM)</th>
                                 <th>Customer Phone</th>
                                 <th>Memo</th>
                                 <th>Status</th>
@@ -35,7 +35,7 @@
                                     {{ tx.created_at|date:"d M Y, H:i:s" }}
                                 </td>
                                 <td class="fw-bold text-nowrap">{{ tx.amount_tzs }} TZS</td>
-                                <td class="text-nowrap">{{ tx.amount_usdc|floatformat:7 }} USDC</td>
+                                <td class="text-nowrap">{{ tx.amount_xlm|floatformat:7 }} XLM</td>
                                 <td>{{ tx.customer_phone }}</td>
                                 <td><code>{{ tx.memo }}</code></td>
                                 <td><span class="badge bg-success rounded-pill">Completed</span></td>

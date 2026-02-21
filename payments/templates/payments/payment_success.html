@@ -12,7 +12,7 @@
             <div class="card-body">
                 <div class="text-center mb-4">
                     <h5 class="display-6 fw-bold text-success">{{ transaction.amount_tzs }} TZS</h5>
-                    <p class="text-muted">≈ {{ transaction.amount_usdc|floatformat:2 }} USDC sent to <strong>{{ transaction.merchant.business_name }}</strong></p>
+                    <p class="text-muted">≈ {{ transaction.amount_xlm|floatformat:2 }} XLM sent to <strong>{{ transaction.merchant.business_name }}</strong></p>
                 </div>
                 
                 <div class="alert alert-light border">
@@ -43,7 +43,7 @@
                             </tr>
                             <tr>
                                 <th class="ps-3">Amount:</th>
-                                <td>{{ transaction.amount_tzs }} TZS ≈ {{ transaction.amount_usdc|floatformat:7 }} USDC</td>
+                                <td>{{ transaction.amount_tzs }} TZS ≈ {{ transaction.amount_xlm|floatformat:7 }} XLM</td>
                             </tr>
                             <tr>
                                 <th class="ps-3">Customer Phone:</th>

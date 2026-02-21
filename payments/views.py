@@ -10,8 +10,8 @@ from .models import Merchant, Transaction
 from .forms import MerchantRegistrationForm, CustomerPaymentForm
 from . import stellar_utils
 
-# Fixed exchange rate for demo (1 USDC = 2500 TZS)
-TZS_PER_USDC = Decimal('2500')
+# Fixed exchange rate for demo (1 XLM = 300 TZS)
+TZS_PER_XLM = Decimal('300')
 
 def index(request):
     """Landing page"""
@@ -28,18 +28,10 @@ def register(request):
             # Generate Stellar account
             keypair = stellar_utils.generate_keypair()
             
-            # Fund account on testnet
-            stellar_utils.fund_account(keypair.public_key)
-            
-            # Wait for account to be created by Friendbot
-            import time
-            time.sleep(5)
-            
-            # Create trustline to USDC
-            try:
-                stellar_utils.create_trustline(keypair.secret, 'USDC', settings.USDC_ISSUER)
-            except Exception as e:
-                messages.warning(request, f"Trustline creation issue: {str(e)}")
+            # Fund account on testnet and wait for it to be indexed
+            if not stellar_utils.fund_account(keypair.public_key):
+                messages.error(request, f"Account creation failed. Friendbot was unable to fund {keypair.public_key}. Please try again.")
+                return render(request, 'payments/merchant_register.html', {'form': form})
             
             # Create merchant record
             merchant = Merchant(
@@ -54,7 +46,7 @@ def register(request):
             
             # Log the user in
             login(request, user)
-            messages.success(request, "Registration successful! Your Stellar wallet has been created and funded with Testnet XLM/USDC.")
+            messages.success(request, "Registration successful! Your Stellar wallet has been created and funded with Testnet XLM.")
             return redirect('dashboard')
     else:
         form = MerchantRegistrationForm()
@@ -105,21 +97,36 @@ def payment_form(request):
             # Look up merchant
             merchant = Merchant.objects.get(username=username)
             
-            # Convert TZS to USDC
-            amount_usdc = amount_tzs / TZS_PER_USDC
+            # Convert TZS to XLM and round to 7 decimal places for Stellar SDK
+            amount_xlm = (amount_tzs / TZS_PER_XLM).quantize(Decimal('0.0000001'))
             
             # Generate memo (phone last 6 digits + time)
             memo = f"{customer_phone[-6:]}{datetime.datetime.now().strftime('%H%M')}"
             
             try:
-                # Get customer account (create if doesn't exist)
+                # Get customer account (create and fund if doesn't exist/is low)
                 customer = stellar_utils.get_or_create_customer_account()
                 
+                # Check balance before sending payment
+                balances = stellar_utils.get_account_balances(customer.public_key)
+                xlm_balance = next((b['balance'] for b in balances if b['asset'] == 'XLM'), '0')
+                
+                if Decimal(xlm_balance) < amount_xlm:
+                    # Try to trigger another funding if it's still too low
+                    stellar_utils.fund_account(customer.public_key)
+                    # Re-check balance
+                    balances = stellar_utils.get_account_balances(customer.public_key)
+                    xlm_balance = next((b['balance'] for b in balances if b['asset'] == 'XLM'), '0')
+                    
+                    if Decimal(xlm_balance) < amount_xlm:
+                        messages.error(request, f"Insufficient XLM balance. Required: {amount_xlm}, Available: {xlm_balance}")
+                        return render(request, 'payments/payment_form.html', {'form': form})
+
                 # Send payment
-                tx_hash = stellar_utils.send_usdc_payment(
+                tx_hash = stellar_utils.send_xlm_payment(
                     from_secret=customer.secret,
                     to_public=merchant.stellar_public_key,
-                    amount_usdc=float(amount_usdc),
+                    amount_xlm=amount_xlm,
                     memo_text=memo
                 )
                 
@@ -128,7 +135,7 @@ def payment_form(request):
                     merchant=merchant,
                     transaction_hash=tx_hash,
                     amount_tzs=amount_tzs,
-                    amount_usdc=amount_usdc,
+                    amount_xlm=amount_xlm,
                     customer_phone=customer_phone,
                     memo=memo,
                     status='completed'

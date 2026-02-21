@@ -97,7 +97,7 @@
                                 </td>
                                 <td>
                                     <div class="fw-bold">{{ tx.amount_tzs }} TZS</div>
-                                    <div class="small text-muted">{{ tx.amount_usdc|floatformat:2 }} USDC</div>
+                                    <div class="small text-muted">{{ tx.amount_xlm|floatformat:2 }} XLM</div>
                                 </td>
                                 <td>{{ tx.customer_phone }}</td>
                                 <td><code class="small">{{ tx.memo }}</code></td>
@@ -111,7 +111,7 @@
                             {% empty %}
                             <tr>
                                 <td colspan="6" class="text-center py-5 text-muted">
-                                    <p class="mb-0">No transactions yet. Share your payment link to start receiving USDC!</p>
+                                    <p class="mb-0">No transactions yet. Share your payment link to start receiving XLM!</p>
                                 </td>
                             </tr>
                             {% endfor %}

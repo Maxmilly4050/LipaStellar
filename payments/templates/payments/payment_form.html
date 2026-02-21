@@ -8,7 +8,7 @@
     <div class="col-md-6">
         <div class="card shadow">
             <div class="card-header bg-success text-white">
-                <h4 class="mb-0">Pay a Merchant (USDC)</h4>
+                <h4 class="mb-0">Pay a Merchant (XLM)</h4>
             </div>
             <div class="card-body">
                 <p class="text-muted">Enter the merchant username and amount in TZS to send a payment on the Stellar network.</p>
@@ -16,7 +16,7 @@
                     {% csrf_token %}
                     {{ form|crispy }}
                     <div class="alert alert-info py-2 small">
-                        <strong>Exchange Rate:</strong> 1 USDC = 2,500 TZS
+                        <strong>Exchange Rate:</strong> 1 XLM = 300 TZS
                     </div>
                     <div class="d-grid gap-2 mt-4">
                         <button type="submit" class="btn btn-success btn-lg">Submit Payment</button>
