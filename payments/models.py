@@ -39,13 +39,18 @@ class Transaction(models.Model):
         ('completed', 'Completed'),
         ('failed', 'Failed'),
     ]
+    DIRECTION_CHOICES = [
+        ('inbound', 'Inbound'),
+        ('outbound', 'Outbound'),
+    ]
     merchant = models.ForeignKey(Merchant, on_delete=models.CASCADE)
-    transaction_hash = models.CharField(max_length=64, unique=True)
+    transaction_hash = models.CharField(max_length=64)
     amount_tzs = models.DecimalField(max_digits=12, decimal_places=2)
     amount_xlm = models.DecimalField(max_digits=12, decimal_places=7)
     customer_phone = models.CharField(max_length=15)
     memo = models.CharField(max_length=28)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='completed')
+    direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, default='inbound')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

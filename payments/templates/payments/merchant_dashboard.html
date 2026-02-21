@@ -81,6 +81,7 @@
                         <thead class="table-light">
                             <tr>
                                 <th class="ps-4">Date</th>
+                                <th>Type</th>
                                 <th>Amount (TZS)</th>
                                 <th>Customer</th>
                                 <th>Memo</th>
@@ -96,7 +97,16 @@
                                     <div class="small text-muted">{{ tx.created_at|date:"H:i" }}</div>
                                 </td>
                                 <td>
-                                    <div class="fw-bold">{{ tx.amount_tzs }} TZS</div>
+                                    {% if tx.direction == 'inbound' %}
+                                    <span class="badge bg-info-subtle text-info border border-info-subtle">Received</span>
+                                    {% else %}
+                                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle">Sent</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="fw-bold {% if tx.direction == 'inbound' %}text-success{% else %}text-danger{% endif %}">
+                                        {% if tx.direction == 'inbound' %}+{% else %}-{% endif %}{{ tx.amount_tzs }} TZS
+                                    </div>
                                     <div class="small text-muted">{{ tx.amount_xlm|floatformat:2 }} XLM</div>
                                 </td>
                                 <td>{{ tx.customer_phone }}</td>
@@ -110,7 +120,7 @@
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="6" class="text-center py-5 text-muted">
+                                <td colspan="7" class="text-center py-5 text-muted">
                                     <p class="mb-0">No transactions yet. Share your payment link to start receiving XLM!</p>
                                 </td>
                             </tr>

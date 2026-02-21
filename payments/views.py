@@ -148,7 +148,8 @@ def payment_form(request):
                     memo_text=memo
                 )
                 
-                # Record transaction
+                # Record transactions
+                # 1. Incoming for recipient merchant
                 Transaction.objects.create(
                     merchant=merchant,
                     transaction_hash=tx_hash,
@@ -156,8 +157,28 @@ def payment_form(request):
                     amount_xlm=amount_xlm,
                     customer_phone=customer_phone,
                     memo=memo,
-                    status='completed'
+                    status='completed',
+                    direction='inbound'
                 )
+
+                # 2. Outgoing for sending merchant (if applicable)
+                if request.user.is_authenticated:
+                    try:
+                        merchant_payer = request.user.merchant
+                        # Don't record twice if merchant is paying themselves (unlikely but possible)
+                        if merchant_payer != merchant:
+                            Transaction.objects.create(
+                                merchant=merchant_payer,
+                                transaction_hash=tx_hash,
+                                amount_tzs=amount_tzs,
+                                amount_xlm=amount_xlm,
+                                customer_phone=customer_phone,
+                                memo=memo,
+                                status='completed',
+                                direction='outbound'
+                            )
+                    except Merchant.DoesNotExist:
+                        pass
                 
                 # Success message
                 messages.success(request, "Payment sent successfully!")
