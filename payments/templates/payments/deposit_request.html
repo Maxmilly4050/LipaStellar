@@ -1,0 +1,68 @@
+{% extends "payments/base.html" %}
+{% block title %}Deposit Funds{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-header bg-success text-white">
+        <h5 class="mb-0">💳 Deposit USDC</h5>
+      </div>
+      <div class="card-body p-4">
+
+        {% if messages %}
+          {% for msg in messages %}
+            <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show">
+              {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        <div class="alert alert-light border">
+          <strong>Current Balance:</strong>
+          <span class="fs-5 fw-bold text-success">{{ customer.balance_usdc|floatformat:2 }} USDC</span>
+          <br><small class="text-muted">≈ {{ customer.balance_usdc|floatformat:2|add:"0" }} TZS at 2,500 TZS/USDC</small>
+        </div>
+
+        <form method="post">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Deposit Amount (TZS)</label>
+            <div class="input-group">
+              <span class="input-group-text">TZS</span>
+              <input type="number" name="amount_tzs" class="form-control"
+                     placeholder="{{ min_deposit }}"
+                     min="{{ min_deposit }}" max="{{ max_deposit }}" step="100"
+                     id="depositAmount" required>
+            </div>
+            <small class="text-muted" id="usdcPreview"></small>
+            <div class="form-text">Min: {{ min_deposit|floatformat:0 }} TZS · Max: {{ max_deposit|floatformat:0 }} TZS</div>
+          </div>
+
+          <div class="alert alert-info small">
+            <strong>📲 How it works:</strong> Enter the amount, confirm on your phone, and your USDC balance will be credited instantly (testnet: automatic).
+          </div>
+
+          <div class="d-grid">
+            <button type="submit" class="btn btn-success btn-lg">Deposit →</button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const inp = document.getElementById('depositAmount');
+  const prev = document.getElementById('usdcPreview');
+  if (inp) {
+    inp.addEventListener('input', () => {
+      const v = parseFloat(inp.value);
+      prev.textContent = isNaN(v) || v <= 0 ? '' : `≈ ${(v/2500).toFixed(4)} USDC`;
+    });
+  }
+</script>
+{% endblock %}

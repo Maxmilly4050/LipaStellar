@@ -1,0 +1,66 @@
+{% extends 'payments/base.html' %}
+{% block title %}Withdrawal History — {{ merchant.cached_username }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0">📋 Withdrawal History</h4>
+  <a href="{% url 'merchant_withdraw_request' %}" class="btn btn-primary">
+    📤 New Withdrawal Request
+  </a>
+</div>
+
+{% if withdrawals %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-4">Date</th>
+              <th>Currency</th>
+              <th>Stellar Amount</th>
+              <th>TZS Amount</th>
+              <th>Payout Method</th>
+              <th>Payout Phone</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for w in withdrawals %}
+            <tr>
+              <td class="ps-4">
+                <div class="fw-semibold">{{ w.requested_at|date:"d M Y" }}</div>
+                <div class="text-muted small">{{ w.requested_at|date:"H:i" }}</div>
+              </td>
+              <td>
+                {% if w.currency == 'USDC' %}
+                  <span class="badge bg-success">USDC</span>
+                {% else %}
+                  <span class="badge bg-info text-dark">XLM</span>
+                {% endif %}
+              </td>
+              <td class="fw-semibold">{{ w.amount_stellar|floatformat:7 }} {{ w.currency }}</td>
+              <td>{{ w.amount_tzs|floatformat:0 }} TZS</td>
+              <td>{{ w.payout_method|title }}</td>
+              <td>{{ w.payout_phone|default:"—" }}</td>
+              <td>
+                <span class="badge bg-{% if w.status == 'completed' %}success{% elif w.status == 'cancelled' or w.status == 'failed' %}danger{% elif w.status == 'processing' %}info{% else %}warning text-dark{% endif %}">
+                  {{ w.get_status_display }}
+                </span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="alert alert-light border text-center py-5">
+    <p class="mb-2 text-muted">No withdrawal requests yet.</p>
+    <a href="{% url 'merchant_withdraw_request' %}" class="btn btn-primary">
+      📤 Request Your First Withdrawal
+    </a>
+  </div>
+{% endif %}
+{% endblock %}

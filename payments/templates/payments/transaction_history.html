@@ -6,7 +6,7 @@
 <div class="row mb-4">
     <div class="col-md-12">
         <h1 class="h3">Transaction History</h1>
-        <p class="text-muted">Detailed log of all incoming XLM payments on the Stellar testnet.</p>
+        <p class="text-muted">Detailed log of all incoming payments (XLM &amp; USDC) on the Stellar testnet.</p>
     </div>
 </div>
 
@@ -20,8 +20,9 @@
                             <tr>
                                 <th class="ps-4">Date & Time</th>
                                 <th>Type</th>
+                                <th>Currency</th>
                                 <th>Amount (TZS)</th>
-                                <th>Amount (XLM)</th>
+                                <th>Crypto Amount</th>
                                 <th>Customer Phone</th>
                                 <th>Memo</th>
                                 <th>Status</th>
@@ -42,23 +43,36 @@
                                     <span class="badge bg-warning-subtle text-warning border border-warning-subtle">Sent</span>
                                     {% endif %}
                                 </td>
+                                <td>
+                                    {% if tx.currency == 'USDC' %}
+                                    <span class="badge bg-success">USDC</span>
+                                    {% else %}
+                                    <span class="badge bg-info text-dark">XLM</span>
+                                    {% endif %}
+                                </td>
                                 <td class="fw-bold text-nowrap {% if tx.direction == 'inbound' %}text-success{% else %}text-danger{% endif %}">
                                     {% if tx.direction == 'inbound' %}+{% else %}-{% endif %}{{ tx.amount_tzs }} TZS
                                 </td>
-                                <td class="text-nowrap">{{ tx.amount_xlm|floatformat:7 }} XLM</td>
+                                <td class="text-nowrap">
+                                    {% if tx.currency == 'USDC' %}
+                                        {{ tx.amount_usdc|floatformat:7 }} USDC
+                                    {% else %}
+                                        {{ tx.amount_xlm|floatformat:7 }} XLM
+                                    {% endif %}
+                                </td>
                                 <td>{{ tx.customer_phone }}</td>
                                 <td><code>{{ tx.memo }}</code></td>
                                 <td><span class="badge bg-success rounded-pill">Completed</span></td>
                                 <td><code class="small text-muted">{{ tx.transaction_hash|slice:":12" }}...</code></td>
                                 <td class="text-end pe-4">
                                     <a href="{{ TESTNET_EXPLORER_URL }}/tx/{{ tx.transaction_hash }}" target="_blank" class="btn btn-sm btn-outline-primary">
-                                        View ↗
+                                        View Tx ↗
                                     </a>
                                 </td>
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="9" class="text-center py-5 text-muted">
+                                <td colspan="10" class="text-center py-5 text-muted">
                                     No transactions found.
                                 </td>
                             </tr>

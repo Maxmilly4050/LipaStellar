@@ -1,0 +1,39 @@
+{% extends "payments/base.html" %}
+{% block title %}Customer Login{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5 col-lg-4">
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-body p-4">
+        <h4 class="fw-bold text-center mb-4">Customer Login</h4>
+
+        {% if messages %}
+          {% for msg in messages %}
+            <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show">
+              {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        <p class="text-muted small text-center mb-3">
+          Enter your phone number to access your USDC balance, deposits, and withdrawals.
+        </p>
+
+        <form method="post">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Phone Number</label>
+            <input type="tel" name="phone" class="form-control"
+                   placeholder="+255712345678" required>
+            <small class="text-muted">International format (e.g. +255712345678)</small>
+          </div>
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary btn-lg">Continue →</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

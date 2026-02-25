@@ -1,0 +1,98 @@
+{% extends "payments/base.html" %}
+{% block title %}Sign & Submit Transaction{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0">✍️ Sign Your Transaction</h5>
+      </div>
+      <div class="card-body p-4">
+
+        {% if messages %}
+          {% for msg in messages %}
+            <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show">
+              {{ msg }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        <!-- Payment summary -->
+        <div class="alert alert-info">
+          <div class="row text-center">
+            <div class="col">
+              <div class="small text-muted">Amount</div>
+              <strong>{{ amount_tzs|default:pending.amount_tzs }} TZS</strong><br>
+              <small class="text-muted">≈ {{ amount_usdc|default:pending.amount_usdc }} USDC</small>
+            </div>
+            <div class="col">
+              <div class="small text-muted">Merchant</div>
+              <strong>{{ merchant_username|default:pending.merchant_username }}</strong>
+            </div>
+            <div class="col">
+              <div class="small text-muted">Memo</div>
+              <code>{{ memo|default:pending.memo }}</code>
+            </div>
+          </div>
+        </div>
+
+        <!-- XDR display (only shown on first load, not on POST back) -->
+        {% if transaction_xdr %}
+          <h6 class="fw-semibold">Step 1 — Copy the unsigned transaction XDR</h6>
+          <div class="mb-3">
+            <textarea class="form-control font-monospace" rows="4" readonly id="xdrBox">{{ transaction_xdr }}</textarea>
+            <button class="btn btn-sm btn-outline-secondary mt-1" onclick="copyXdr()">📋 Copy XDR</button>
+          </div>
+
+          <h6 class="fw-semibold mt-3">Step 2 — Sign it using Stellar Laboratory</h6>
+          <p class="text-muted small mb-2">
+            Open the link below, paste the XDR, sign with your secret key (testnet), then copy the <em>signed</em> XDR back here.
+          </p>
+          <a href="{{ stellar_lab_url }}" target="_blank" class="btn btn-outline-primary btn-sm mb-3">
+            🔬 Open Stellar Laboratory ↗
+          </a>
+        {% endif %}
+
+        <h6 class="fw-semibold mt-2">Step 3 — Paste the <em>signed</em> XDR and submit</h6>
+        <form method="post" action="{% url 'payment_sign' %}">
+          {% csrf_token %}
+          <div class="mb-3">
+            <textarea name="signed_transaction"
+                      class="form-control font-monospace"
+                      rows="5"
+                      placeholder="Paste your signed XDR transaction here…"
+                      required></textarea>
+          </div>
+          <div class="d-grid">
+            <button type="submit" class="btn btn-success btn-lg">
+              Submit Payment →
+            </button>
+          </div>
+        </form>
+
+        <div class="mt-3 text-center">
+          <a href="{% url 'payment_wallet' %}" class="text-muted small">← Start over</a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function copyXdr() {
+    const box = document.getElementById('xdrBox');
+    if (box) {
+      navigator.clipboard.writeText(box.value).then(() => {
+        const btn = event.target;
+        btn.textContent = '✅ Copied!';
+        setTimeout(() => { btn.textContent = '📋 Copy XDR'; }, 2000);
+      });
+    }
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "payments/base.html" %}
+{% block title %}Deposit History{% endblock %}
+{% block content %}
+<div class="container">
+  <h4 class="fw-bold mb-4">Your Deposits</h4>
+  <p class="text-muted">Balance: <strong>{{ customer.balance_usdc|floatformat:2 }} USDC</strong></p>
+  {% if deposits %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr><th>Date</th><th>TZS</th><th>USDC</th><th>Method</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {% for d in deposits %}
+            <tr>
+              <td>{{ d.created_at|date:"M d, H:i" }}</td>
+              <td>{{ d.amount_tzs|floatformat:0 }}</td>
+              <td>{{ d.amount_usdc|floatformat:4 }}</td>
+              <td>{{ d.payment_method }}</td>
+              <td><span class="badge bg-{% if d.status == 'completed' %}success{% elif d.status == 'failed' %}danger{% else %}warning text-dark{% endif %}">{{ d.status }}</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-light border">No deposits yet. <a href="{% url 'deposit_request' %}">Make your first deposit →</a></div>
+  {% endif %}
+</div>
+{% endblock %}

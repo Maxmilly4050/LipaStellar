@@ -1,0 +1,40 @@
+{% extends "payments/base.html" %}
+{% block title %}Withdrawal Review{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-header bg-warning text-dark fw-semibold">
+        Review Withdrawal #{{ withdrawal.id }}
+      </div>
+      <div class="card-body p-4">
+        <table class="table table-borderless mb-4">
+          <tr><th>Customer</th><td>{{ withdrawal.customer.phone_number }}</td></tr>
+          <tr><th>Amount (TZS)</th><td>{{ withdrawal.amount_tzs|floatformat:0 }}</td></tr>
+          <tr><th>Amount (USDC)</th><td>{{ withdrawal.amount_usdc|floatformat:7 }}</td></tr>
+          <tr><th>Method</th><td>{{ withdrawal.payout_method }}</td></tr>
+          <tr><th>Requested</th><td>{{ withdrawal.requested_at }}</td></tr>
+          <tr><th>Customer Balance</th><td>{{ withdrawal.customer.balance_usdc|floatformat:4 }} USDC</td></tr>
+        </table>
+
+        <form method="post">
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label">Rejection reason (if rejecting)</label>
+            <input type="text" name="reason" class="form-control" placeholder="Optional reason for rejection">
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" name="action" value="approve" class="btn btn-success flex-fill">
+              ✅ Approve & Pay Out
+            </button>
+            <button type="submit" name="action" value="reject" class="btn btn-danger flex-fill">
+              ❌ Reject
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "payments/base.html" %}
+{% block title %}Pending Withdrawals{% endblock %}
+{% block content %}
+<div class="container">
+  <h4 class="fw-bold mb-4">Pending Withdrawal Requests</h4>
+  {% if withdrawals %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr><th>#</th><th>Phone</th><th>TZS</th><th>USDC</th><th>Requested</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for w in withdrawals %}
+            <tr>
+              <td>{{ w.id }}</td>
+              <td>{{ w.customer.phone_number }}</td>
+              <td>{{ w.amount_tzs|floatformat:0 }}</td>
+              <td>{{ w.amount_usdc|floatformat:4 }}</td>
+              <td>{{ w.requested_at|date:"M d, H:i" }}</td>
+              <td><a href="{% url 'withdrawal_approve' w.id %}" class="btn btn-sm btn-outline-primary">Review</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-success">No pending withdrawals. 🎉</div>
+  {% endif %}
+</div>
+{% endblock %}

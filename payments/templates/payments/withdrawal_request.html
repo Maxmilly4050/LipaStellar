@@ -1,0 +1,76 @@
+{% extends "payments/base.html" %}
+{% block title %}Request Withdrawal{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">💸 Withdraw Funds</h5>
+      </div>
+      <div class="card-body p-4">
+
+        {% if messages %}
+          {% for msg in messages %}
+            <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show">
+              {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        <div class="alert alert-light border">
+          <strong>Available Balance:</strong>
+          <span class="fs-5 fw-bold text-primary">{{ customer.balance_usdc|floatformat:2 }} USDC</span>
+        </div>
+
+        <form method="post">
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Withdrawal Amount (TZS)</label>
+            <div class="input-group">
+              <span class="input-group-text">TZS</span>
+              <input type="number" name="amount_tzs" class="form-control"
+                     placeholder="{{ min_withdrawal }}"
+                     min="{{ min_withdrawal }}" step="100"
+                     id="withdrawAmount" required>
+            </div>
+            <small class="text-muted" id="usdcPreview"></small>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Payout Method</label>
+            <select name="payout_method" class="form-select">
+              <option value="mobile_money">Mobile Money</option>
+              <option value="bank_transfer">Bank Transfer</option>
+            </select>
+          </div>
+
+          <div class="alert alert-warning small">
+            ⏳ Withdrawals are processed within 24 hours after staff approval.
+            Funds will be sent to your registered phone number.
+          </div>
+
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary btn-lg">Request Withdrawal →</button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const inp = document.getElementById('withdrawAmount');
+  const prev = document.getElementById('usdcPreview');
+  if (inp) {
+    inp.addEventListener('input', () => {
+      const v = parseFloat(inp.value);
+      prev.textContent = isNaN(v) || v <= 0 ? '' : `≈ ${(v/2500).toFixed(4)} USDC`;
+    });
+  }
+</script>
+{% endblock %}

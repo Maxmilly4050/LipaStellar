@@ -1,0 +1,164 @@
+{% extends 'payments/base.html' %}
+
+{% block title %}My Account — {{ customer.phone_number }}{% endblock %}
+
+{% block content %}
+
+{# ── Header ──────────────────────────────────────────────────────────── #}
+<div class="d-flex justify-content-between align-items-center bg-white p-4 shadow-sm rounded mb-4">
+    <div>
+        <h1 class="h3 mb-0">👋 Hello, {{ customer.phone_number }}</h1>
+        <p class="text-muted mb-0 small">
+            Account since {{ customer.created_at|date:"M d, Y" }} &bull;
+            Last seen {{ customer.last_seen|timesince }} ago
+        </p>
+    </div>
+    <div class="text-end">
+        <a href="{% url 'customer_logout' %}" class="btn btn-outline-danger btn-sm">Logout</a>
+    </div>
+</div>
+
+{# ── Summary cards ───────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-4">
+                <p class="text-muted small mb-1 text-uppercase fw-bold">Current Balance</p>
+                <h2 class="fw-bold text-primary mb-0">{{ customer.balance_usdc|floatformat:2 }} <small class="fs-5">USDC</small></h2>
+                <p class="text-muted small mt-1">≈ {{ customer.balance_usdc|floatformat:0 }} × {{ tzs_per_usdc|floatformat:0 }} TZS</p>
+                <div class="d-flex gap-2 justify-content-center mt-3">
+                    <a href="{% url 'deposit_request' %}" class="btn btn-primary btn-sm">💰 Deposit</a>
+                    <a href="{% url 'withdrawal_request' %}" class="btn btn-outline-secondary btn-sm">📤 Withdraw</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-4">
+                <p class="text-muted small mb-1 text-uppercase fw-bold">Payment Memo</p>
+                <h3 class="fw-bold font-monospace text-dark mb-0">{{ customer.stellar_memo }}</h3>
+                <p class="text-muted small mt-1">Share this when paying via phone</p>
+                <button class="btn btn-outline-secondary btn-sm mt-2"
+                        onclick="navigator.clipboard.writeText('{{ customer.stellar_memo }}').then(()=>this.textContent='✅ Copied!')">
+                    📋 Copy Memo
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-4">
+                <p class="text-muted small mb-1 text-uppercase fw-bold">Lifetime Stats</p>
+                <div class="d-flex justify-content-around mt-2">
+                    <div>
+                        <div class="fw-bold text-success fs-5">{{ total_deposited|floatformat:2 }}</div>
+                        <div class="text-muted small">USDC In</div>
+                    </div>
+                    <div class="border-start"></div>
+                    <div>
+                        <div class="fw-bold text-danger fs-5">{{ total_withdrawn|floatformat:2 }}</div>
+                        <div class="text-muted small">USDC Out</div>
+                    </div>
+                </div>
+                <p class="text-muted small mt-3 mb-0">Rate: 1 USDC = {{ tzs_per_usdc|floatformat:0 }} TZS</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Quick actions ───────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title mb-3">⚡ Quick Actions</h5>
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="{% url 'payment_method' %}" class="btn btn-success">💵 Pay (USDC)</a>
+                    <a href="{% url 'payment_form' %}" class="btn btn-info text-dark">⚡ Pay (XLM)</a>
+                    <a href="{% url 'deposit_request' %}" class="btn btn-primary">💰 Deposit USDC</a>
+                    <a href="{% url 'withdrawal_request' %}" class="btn btn-warning text-dark">📤 Withdraw</a>
+                    <a href="{% url 'deposit_history' %}" class="btn btn-outline-secondary">📋 Deposit History</a>
+                    <a href="{% url 'withdrawal_history' %}" class="btn btn-outline-secondary">📋 Withdrawal History</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Recent activity ─────────────────────────────────────────────────── #}
+<div class="row g-3">
+
+    {# Recent Deposits #}
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">💰 Recent Deposits</h5>
+                <a href="{% url 'deposit_history' %}" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_deposits %}
+                    <ul class="list-group list-group-flush">
+                        {% for d in recent_deposits %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-semibold">{{ d.amount_tzs|floatformat:0 }} TZS</div>
+                                    <div class="text-muted small">{{ d.created_at|date:"M d, H:i" }} &bull; {{ d.payment_method }}</div>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge bg-{% if d.status == 'completed' %}success{% elif d.status == 'failed' %}danger{% else %}warning text-dark{% endif %}">
+                                        {{ d.status }}
+                                    </span>
+                                    <div class="text-muted small mt-1">{{ d.amount_usdc|floatformat:4 }} USDC</div>
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <div class="p-4 text-center text-muted">
+                        No deposits yet. <a href="{% url 'deposit_request' %}">Make your first →</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# Recent Withdrawals #}
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">📤 Recent Withdrawals</h5>
+                <a href="{% url 'withdrawal_history' %}" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_withdrawals %}
+                    <ul class="list-group list-group-flush">
+                        {% for w in recent_withdrawals %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-semibold">{{ w.amount_tzs|floatformat:0 }} TZS</div>
+                                    <div class="text-muted small">{{ w.requested_at|date:"M d, H:i" }} &bull; {{ w.payout_method }}</div>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge bg-{% if w.status == 'completed' %}success{% elif w.status == 'failed' or w.status == 'cancelled' %}danger{% elif w.status == 'processing' %}info{% else %}warning text-dark{% endif %}">
+                                        {{ w.status }}
+                                    </span>
+                                    <div class="text-muted small mt-1">{{ w.amount_usdc|floatformat:4 }} USDC</div>
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <div class="p-4 text-center text-muted">
+                        No withdrawals yet.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

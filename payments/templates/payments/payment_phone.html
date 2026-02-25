@@ -1,0 +1,112 @@
+{% extends "payments/base.html" %}
+{% block title %}Phone Payment{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7 col-lg-6">
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-header bg-success text-white">
+        <h5 class="mb-0">📱 Pay with Phone Number</h5>
+      </div>
+      <div class="card-body p-4">
+
+        {% if messages %}
+          {% for msg in messages %}
+            <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show" role="alert">
+              {{ msg }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        {% if customer_balance is not None %}
+          <div class="alert alert-warning">
+            <strong>Balance:</strong> {{ customer_balance|floatformat:2 }} USDC
+            &nbsp;|&nbsp;
+            <strong>Required:</strong> {{ required_usdc|floatformat:2 }} USDC
+            <br>
+            <a href="{% url 'deposit_request' %}" class="btn btn-sm btn-warning mt-2">Top up balance →</a>
+          </div>
+        {% endif %}
+
+        <form method="post">
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Merchant Username</label>
+            <input type="text" name="merchant_username"
+                   value="{{ form.merchant_username.value|default:'' }}"
+                   class="form-control {% if form.merchant_username.errors %}is-invalid{% endif %}"
+                   placeholder="e.g. mama_cafe">
+            {% for err in form.merchant_username.errors %}
+              <div class="invalid-feedback">{{ err }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Amount (TZS)</label>
+            <div class="input-group">
+              <span class="input-group-text">TZS</span>
+              <input type="number" name="amount_tzs"
+                     value="{{ form.amount_tzs.value|default:'' }}"
+                     class="form-control {% if form.amount_tzs.errors %}is-invalid{% endif %}"
+                     placeholder="5000" min="1" step="1"
+                     id="amountTzs">
+            </div>
+            <small class="text-muted" id="usdcPreview"></small>
+            {% for err in form.amount_tzs.errors %}
+              <div class="text-danger small">{{ err }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Your Phone Number</label>
+            <input type="tel" name="customer_phone"
+                   value="{{ form.customer_phone.value|default:'' }}"
+                   class="form-control {% if form.customer_phone.errors %}is-invalid{% endif %}"
+                   placeholder="+255712345678">
+            <small class="text-muted">International format. Used to find your USDC balance.</small>
+            {% for err in form.customer_phone.errors %}
+              <div class="invalid-feedback">{{ err }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="alert alert-light border small">
+            💡 <strong>No wallet?</strong> Your first payment automatically creates an account.
+            You can top up your balance at any time from the
+            <a href="{% url 'deposit_request' %}">Deposit</a> page.
+          </div>
+
+          <div class="d-grid mt-3">
+            <button type="submit" class="btn btn-success btn-lg">
+              Pay Now →
+            </button>
+          </div>
+        </form>
+
+        <div class="text-center mt-3">
+          <a href="{% url 'payment_method' %}" class="text-muted small">← Choose different payment method</a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const amountInput = document.getElementById('amountTzs');
+  const preview = document.getElementById('usdcPreview');
+  if (amountInput) {
+    amountInput.addEventListener('input', () => {
+      const tzs = parseFloat(amountInput.value);
+      if (!isNaN(tzs) && tzs > 0) {
+        preview.textContent = `≈ ${(tzs / 2500).toFixed(4)} USDC`;
+      } else {
+        preview.textContent = '';
+      }
+    });
+  }
+</script>
+{% endblock %}

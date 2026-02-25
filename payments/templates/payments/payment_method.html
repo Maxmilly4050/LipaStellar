@@ -1,0 +1,46 @@
+{% extends "payments/base.html" %}
+{% block title %}Choose Payment Method{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5">
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-body p-4">
+
+        <div class="text-center mb-4">
+          <h2 class="fw-bold">How would you like to pay?</h2>
+          {% if merchant %}
+            <p class="text-muted mb-0">Paying merchant: <strong>{{ merchant }}</strong></p>
+          {% endif %}
+        </div>
+
+        <form method="post">
+          {% csrf_token %}
+          {% for choice in form.payment_method %}
+            <div class="form-check border rounded p-3 mb-3 {% if forloop.first %}border-primary bg-primary bg-opacity-10{% endif %}">
+              {{ choice.tag }}
+              <label class="form-check-label w-100 ms-2 cursor-pointer" for="{{ choice.id_for_label }}">
+                <strong>{{ choice.choice_label }}</strong>
+                {% if "wallet" in choice.choice_value %}
+                  <br><small class="text-muted">Send <strong>USDC</strong> directly from your own Stellar wallet. You control your keys.</small>
+                {% elif "phone" in choice.choice_value %}
+                  <br><small class="text-muted">No crypto wallet needed. Use your phone-linked <strong>USDC</strong> balance.</small>
+                {% else %}
+                  <br><small class="text-muted">Pay in <strong>XLM</strong> using the classic Stellar network. Rate: 1 XLM = 300 TZS.</small>
+                {% endif %}
+              </label>
+            </div>
+          {% endfor %}
+
+          <div class="d-grid mt-3">
+            <button type="submit" class="btn btn-primary btn-lg">
+              Continue →
+            </button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

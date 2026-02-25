@@ -1,0 +1,33 @@
+{% extends "payments/base.html" %}
+{% block title %}Withdrawal History{% endblock %}
+{% block content %}
+<div class="container">
+  <h4 class="fw-bold mb-4">Your Withdrawals</h4>
+  {% if withdrawals %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-light">
+          <tr><th>Date</th><th>TZS</th><th>USDC</th><th>Method</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {% for w in withdrawals %}
+            <tr>
+              <td>{{ w.requested_at|date:"M d, H:i" }}</td>
+              <td>{{ w.amount_tzs|floatformat:0 }}</td>
+              <td>{{ w.amount_usdc|floatformat:4 }}</td>
+              <td>{{ w.payout_method }}</td>
+              <td><span class="badge bg-{% if w.status == 'completed' %}success{% elif w.status == 'cancelled' %}secondary{% elif w.status == 'requested' %}warning text-dark{% else %}info{% endif %}">{{ w.status }}</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-light border">No withdrawals yet. <a href="{% url 'withdrawal_request' %}">Request a withdrawal →</a></div>
+  {% endif %}
+  <div class="mt-3">
+    <a href="{% url 'deposit_request' %}" class="btn btn-outline-success me-2">Deposit</a>
+    <a href="{% url 'withdrawal_request' %}" class="btn btn-outline-primary">Withdraw</a>
+  </div>
+</div>
+{% endblock %}

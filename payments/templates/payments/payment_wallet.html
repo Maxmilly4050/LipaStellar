@@ -1,0 +1,100 @@
+{% extends "payments/base.html" %}
+{% block title %}Wallet Payment{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7 col-lg-6">
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">🔑 Pay with Your Stellar Wallet</h5>
+      </div>
+      <div class="card-body p-4">
+
+        {% if messages %}
+          {% for msg in messages %}
+            <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show" role="alert">
+              {{ msg }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        {% if validation_details %}
+          <div class="alert alert-warning">
+            <strong>Account Status:</strong>
+            <ul class="mb-0 mt-1">
+              <li>Account exists: {% if validation_details.account_exists %}✅{% else %}❌{% endif %}</li>
+              <li>USDC trustline: {% if validation_details.has_trustline %}✅{% else %}❌{% endif %}</li>
+              <li>USDC balance: {{ validation_details.usdc_balance }}</li>
+              <li>XLM balance: {{ validation_details.xlm_balance }}</li>
+            </ul>
+          </div>
+        {% endif %}
+
+        <form method="post" id="walletPaymentForm">
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Merchant Username</label>
+            <input type="text" name="merchant_username"
+                   value="{{ form.merchant_username.value|default:'' }}"
+                   class="form-control {% if form.merchant_username.errors %}is-invalid{% endif %}"
+                   placeholder="e.g. mama_cafe">
+            {% for err in form.merchant_username.errors %}
+              <div class="invalid-feedback">{{ err }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Amount (TZS)</label>
+            <div class="input-group">
+              <span class="input-group-text">TZS</span>
+              <input type="number" name="amount_tzs"
+                     value="{{ form.amount_tzs.value|default:'' }}"
+                     class="form-control {% if form.amount_tzs.errors %}is-invalid{% endif %}"
+                     placeholder="5000" min="1" step="1"
+                     id="amountTzs">
+            </div>
+            <small class="text-muted" id="usdcPreview"></small>
+            {% for err in form.amount_tzs.errors %}
+              <div class="text-danger small">{{ err }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Your Stellar Public Key</label>
+            <input type="text" name="stellar_public_key"
+                   value="{{ form.stellar_public_key.value|default:'' }}"
+                   class="form-control font-monospace {% if form.stellar_public_key.errors %}is-invalid{% endif %}"
+                   placeholder="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                   id="stellarPublicKey"
+                   maxlength="56">
+            <div id="pkValidationMsg" class="form-text"></div>
+            {% for err in form.stellar_public_key.errors %}
+              <div class="invalid-feedback">{{ err }}</div>
+            {% endfor %}
+            <small class="text-muted">Found in your Stellar wallet (e.g. Lobstr, Freighter). Starts with 'G'.</small>
+          </div>
+
+          <div id="accountStatusBox" class="d-none alert alert-info py-2"></div>
+
+          <div class="d-grid mt-3">
+            <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+              Validate & Build Transaction →
+            </button>
+          </div>
+        </form>
+
+        <div class="text-center mt-3">
+          <a href="{% url 'payment_method' %}" class="text-muted small">← Choose different payment method</a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/payment_wallet.js' %}"></script>
+{% endblock %}

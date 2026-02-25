@@ -455,8 +455,9 @@ def get_single_data_entry(public_key: str, key_name: str) -> str | None:
     """
     Retrieve a single ManageData value by key name.
 
-    More efficient than get_merchant_profile() when only one field is needed
-    because it hits the Horizon ``/accounts/{id}/data/{key}`` endpoint directly.
+    Hits the Horizon ``GET /accounts/{id}/data/{key}`` REST endpoint directly
+    via requests, because stellar-sdk v10 removed the .data() helper from
+    AccountsCallBuilder.
 
     Args:
         public_key: Stellar G-address of the merchant.
@@ -465,19 +466,20 @@ def get_single_data_entry(public_key: str, key_name: str) -> str | None:
     Returns:
         Decoded UTF-8 string, or None if the key does not exist.
     """
-    server = get_server()
+    horizon_url = settings.STELLAR_HORIZON_URL.rstrip("/")
+    url = f"{horizon_url}/accounts/{public_key}/data/{key_name}"
     try:
-        response = server.accounts().data(public_key, key_name).call()
-        value_b64 = response.get("value")
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        value_b64 = resp.json().get("value")
         if not value_b64:
             return None
         return base64.b64decode(value_b64).decode("utf-8")
-    except NotFoundError:
+    except requests.exceptions.HTTPError:
         return None
     except Exception as exc:
-        # Some SDK versions surface HTTP 404 as a generic exception
-        if hasattr(exc, "status") and exc.status == 404:
-            return None
         logger.error("Error fetching '%s' for %s…: %s", key_name, public_key[:8], exc)
         return None
 
@@ -617,3 +619,301 @@ def get_account_data_summary(public_key: str) -> str:
     if not profile:
         return "No ManageData entries found."
     return "\n".join(f"  {k}: {v}" for k, v in profile.items())
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Account Validation — for dual-path customer onboarding
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def validate_stellar_public_key(public_key: str) -> tuple[bool, str | None]:
+    """
+    Validate the format of a Stellar public key (G-address).
+
+    Returns:
+        (True, None) if valid.
+        (False, error_message) if invalid.
+    """
+    if not public_key:
+        return False, "Public key is required."
+    if not public_key.startswith('G'):
+        return False, "Stellar public keys must start with 'G'."
+    if len(public_key) != 56:
+        return False, f"Stellar public keys must be 56 characters (got {len(public_key)})."
+    try:
+        Keypair.from_public_key(public_key)
+        return True, None
+    except Exception:
+        return False, "Invalid Stellar public key format."
+
+
+def check_usdc_trustline(
+    public_key: str,
+    issuer: str | None = None,
+) -> tuple[bool, str, str | None]:
+    """
+    Check whether an account has a USDC trustline.
+
+    Args:
+        public_key: Stellar G-address to inspect.
+        issuer:     USDC issuer address. Defaults to settings.USDC_ISSUER.
+
+    Returns:
+        (has_trustline, balance_str, error_message)
+        balance_str is '0' when no trustline exists.
+    """
+    if issuer is None:
+        issuer = settings.USDC_ISSUER
+    try:
+        balances = get_account_balances(public_key)
+        if balances is None:
+            return False, '0', "Account not found on network."
+        for b in balances:
+            if b.get('asset') == 'USDC' and b.get('issuer') == issuer:
+                return True, b['balance'], None
+        return False, '0', None
+    except Exception as exc:
+        return False, '0', str(exc)
+
+
+def get_minimum_account_requirements() -> dict:
+    """
+    Return the minimum XLM reserve requirements for a Stellar account.
+    Values are in XLM.
+    """
+    return {
+        'base_reserve': 0.5,
+        'per_entry_reserve': 0.5,
+        'minimum_balance': 1.0,   # base_reserve × 2 subentries (account itself + 1 trustline)
+        'transaction_fee': 0.0001,
+        'recommended_minimum': 2.0,
+    }
+
+
+def validate_account_for_payment(
+    public_key: str,
+    required_amount_usdc: "Decimal",
+) -> dict:
+    """
+    Comprehensive pre-payment validation for a wallet customer.
+
+    Checks:
+    1. Public key format
+    2. Account exists on network
+    3. Has USDC trustline
+    4. Sufficient USDC balance
+    5. Sufficient XLM for transaction fee
+
+    Returns:
+        {
+          'is_valid': bool,
+          'error': str | None,
+          'details': {
+              'account_exists': bool,
+              'has_trustline': bool,
+              'usdc_balance': str,
+              'xlm_balance': str,
+              'required_usdc': str,
+          }
+        }
+    """
+    from decimal import Decimal as _Decimal
+
+    details: dict = {
+        'account_exists': False,
+        'has_trustline': False,
+        'usdc_balance': '0',
+        'xlm_balance': '0',
+        'required_usdc': str(required_amount_usdc),
+    }
+
+    # 1. Format validation
+    fmt_ok, fmt_err = validate_stellar_public_key(public_key)
+    if not fmt_ok:
+        return {'is_valid': False, 'error': fmt_err, 'details': details}
+
+    # 2. Account existence
+    if not account_exists(public_key):
+        return {
+            'is_valid': False,
+            'error': (
+                "This Stellar account does not exist on the network. "
+                "Please fund your account first."
+            ),
+            'details': details,
+        }
+    details['account_exists'] = True
+
+    # 3. Fetch all balances once
+    balances = get_account_balances(public_key)
+    if not balances:
+        return {'is_valid': False, 'error': "Unable to fetch account balances.", 'details': details}
+
+    xlm_balance = _Decimal('0')
+    usdc_balance = _Decimal('0')
+
+    for b in balances:
+        if b['asset'] == 'XLM':
+            xlm_balance = _Decimal(b['balance'])
+        if b.get('asset') == 'USDC' and b.get('issuer') == settings.USDC_ISSUER:
+            usdc_balance = _Decimal(b['balance'])
+            details['has_trustline'] = True
+
+    details['usdc_balance'] = str(usdc_balance)
+    details['xlm_balance'] = str(xlm_balance)
+
+    if not details['has_trustline']:
+        return {
+            'is_valid': False,
+            'error': (
+                "Your account does not have a USDC trustline. "
+                "Please add one in your Stellar wallet before paying."
+            ),
+            'details': details,
+        }
+
+    # 4. USDC balance check
+    if usdc_balance < _Decimal(str(required_amount_usdc)):
+        return {
+            'is_valid': False,
+            'error': (
+                f"Insufficient USDC balance. "
+                f"You have {usdc_balance:.2f} USDC, "
+                f"need {required_amount_usdc:.2f} USDC."
+            ),
+            'details': details,
+        }
+
+    # 5. XLM fee check (minimum 0.0001 XLM needed beyond base reserve)
+    min_reqs = get_minimum_account_requirements()
+    if xlm_balance < _Decimal(str(min_reqs['transaction_fee'] + min_reqs['base_reserve'])):
+        return {
+            'is_valid': False,
+            'error': (
+                f"Insufficient XLM for transaction fees. "
+                f"You have {xlm_balance:.4f} XLM; need at least "
+                f"{min_reqs['transaction_fee'] + min_reqs['base_reserve']:.4f} XLM."
+            ),
+            'details': details,
+        }
+
+    return {'is_valid': True, 'error': None, 'details': details}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# XDR generation & submission — for non-custodial (wallet) path
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def generate_payment_xdr(
+    from_account: str,
+    to_account: str,
+    amount_usdc: str,
+    memo_text: str = "LIPASTELLAR",
+) -> str:
+    """
+    Build an *unsigned* USDC payment transaction and return its XDR envelope.
+
+    The XDR can be pasted into Stellar Laboratory (or any wallet) for signing.
+    The from_account must already exist on the network.
+
+    Args:
+        from_account: Sender's public key (G-address).
+        to_account:   Recipient's public key (G-address).
+        amount_usdc:  Payment amount as a string (e.g. "10.0000000").
+        memo_text:    Memo text (max 28 bytes).
+
+    Returns:
+        Base64-encoded XDR string of the unsigned transaction envelope.
+    """
+    server = get_server()
+    account = server.load_account(from_account)
+    usdc_asset = Asset('USDC', settings.USDC_ISSUER)
+
+    tx = (
+        TransactionBuilder(
+            source_account=account,
+            network_passphrase=get_network_passphrase(),
+            base_fee=100,
+        )
+        .append_payment_op(
+            destination=to_account,
+            asset=usdc_asset,
+            amount=str(amount_usdc),
+        )
+        .add_text_memo(memo_text[:28])
+        .set_timeout(300)   # 5 minutes for the user to sign
+        .build()
+    )
+    return tx.to_xdr()
+
+
+def submit_signed_transaction(signed_xdr: str) -> str:
+    """
+    Submit a signed XDR transaction to the Stellar network.
+
+    Args:
+        signed_xdr: Base64-encoded XDR of a signed transaction envelope.
+
+    Returns:
+        Transaction hash (hex string).
+
+    Raises:
+        BadRequestError: If Horizon rejects the transaction.
+        Exception:       For other network errors.
+    """
+    from stellar_sdk import TransactionEnvelope
+
+    server = get_server()
+    envelope = TransactionEnvelope.from_xdr(signed_xdr, network_passphrase=get_network_passphrase())
+    response = server.submit_transaction(envelope)
+    return response['hash']
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Master account — treasury / pooled payments
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_master_customer_keypair() -> "Keypair":
+    """
+    Return the Keypair for the shared master customer account.
+    The secret is read from MASTER_CUSTOMER_SECRET env var.
+
+    Raises:
+        ValueError: If the env var is not set.
+    """
+    secret = os.getenv('MASTER_CUSTOMER_SECRET')
+    if not secret:
+        raise ValueError(
+            "MASTER_CUSTOMER_SECRET is not set in the environment. "
+            "Please generate a funded Stellar testnet account and add its "
+            "secret key to your .env file."
+        )
+    return Keypair.from_secret(secret)
+
+
+def get_master_balance(issuer: str | None = None) -> "Decimal":
+    """
+    Return the current USDC balance of the master customer account.
+
+    Args:
+        issuer: USDC issuer address. Defaults to settings.USDC_ISSUER.
+
+    Returns:
+        Decimal USDC balance. Returns 0 if the account has no USDC trustline.
+
+    Raises:
+        ValueError: If MASTER_CUSTOMER_SECRET is not configured.
+        Exception:  On Horizon network errors.
+    """
+    from decimal import Decimal as _Decimal
+    if issuer is None:
+        issuer = settings.USDC_ISSUER
+
+    keypair = get_master_customer_keypair()
+    balances = get_account_balances(keypair.public_key)
+    if not balances:
+        return _Decimal('0')
+
+    for b in balances:
+        if b.get('asset') == 'USDC' and b.get('issuer') == issuer:
+            return _Decimal(b['balance'])
+    return _Decimal('0')
