@@ -1,12 +1,31 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+import dj_database_url
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-fallback-key')
+# ── Secret key ──────────────────────────────────────────────────────────────
+# This key is ALSO used to derive the Fernet encryption key for custodial
+# Stellar secrets.  It MUST be a strong random value in production and must
+# NEVER appear in source control.
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    if os.getenv('DEBUG', 'False') == 'True':
+        import warnings
+        SECRET_KEY = 'django-insecure-local-dev-only-do-not-use-in-production-change-me'
+        warnings.warn(
+            "SECRET_KEY is not set — using an insecure development fallback. "
+            "Set SECRET_KEY in your .env file before deploying.",
+            stacklevel=2,
+        )
+    else:
+        raise ValueError(
+            "SECRET_KEY environment variable is required in production. "
+            "Set it in your Vercel/hosting environment variables."
+        )
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = ['*']
@@ -53,12 +72,21 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'lipastellar.wsgi.application'
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL', 'sqlite:///db.sqlite3'),
+        conn_max_age=600,  # Persistent connections
+        ssl_require=os.getenv('DEBUG', 'False') != 'True',  # SSL required except local dev
+    )
 }
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',},
@@ -93,3 +121,60 @@ STELLAR_NETWORK_PASSPHRASE = os.getenv('STELLAR_NETWORK_PASSPHRASE', 'Test SDF N
 USDC_ISSUER = os.getenv('USDC_ISSUER', 'GCSACNK7RMSZSYKJKGZYNNE23G4IWO6SOV2ESIEGQB5YKXOKGMEU2PLD')
 FRIENDBOT_URL = os.getenv('FRIENDBOT_URL', 'https://friendbot.stellar.org')
 TESTNET_EXPLORER_URL = os.getenv('TESTNET_EXPLORER_URL', 'https://stellar.expert/explorer/testnet')
+
+# ── Logging — audit trail for custodial key operations ───────────────────────
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'audit': {
+            'format': '{asctime} {levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'audit_file': {
+            'level': 'WARNING',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'audit.log',
+            'formatter': 'audit',
+        },
+    },
+    'loggers': {
+        # All secret-key decryption events go to both the audit log and console
+        'payments.security': {
+            'handlers': ['audit_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Stellar utility info (profile storage, retrieval, updates)
+        'payments.stellar_utils': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        # General payments app logging
+        'payments': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+}
+
+# ── Cache (in-process, suitable for single-dyno Vercel deployments) ──────────
+# Upgrade to Redis/Memcache for multi-instance production setups.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'lipastellar-cache',
+    }
+}

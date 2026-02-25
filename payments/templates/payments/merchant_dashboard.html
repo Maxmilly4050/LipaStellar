@@ -1,24 +1,71 @@
 {% extends 'payments/base.html' %}
 
-{% block title %}Dashboard - {{ merchant.business_name }}{% endblock %}
+{% block title %}Dashboard - {{ merchant.cached_business_name|default:merchant.cached_username }}{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
     <div class="col-md-12">
         <div class="d-flex justify-content-between align-items-center bg-white p-4 shadow-sm rounded">
             <div>
-                <h1 class="h3 mb-0">Welcome, {{ merchant.business_name }}!</h1>
-                <p class="text-muted mb-0">Merchant Username: <strong>{{ merchant.username }}</strong></p>
+                <h1 class="h3 mb-0">Welcome, {{ merchant.cached_business_name|default:merchant.cached_username }}!</h1>
+                <p class="text-muted mb-0">Merchant Username: <strong>{{ merchant.cached_username }}</strong></p>
             </div>
             <div class="text-end">
-                <a href="{% url 'payment_form' %}?merchant={{ merchant.username|urlencode }}" class="btn btn-primary" target="_blank">Test Payment Form ↗</a>
+                <a href="{% url 'payment_form' %}?merchant={{ merchant.cached_username|urlencode }}" class="btn btn-primary" target="_blank">Test Payment Form ↗</a>
             </div>
         </div>
     </div>
 </div>
 
 <div class="row mt-4">
-    <div class="col-md-7">
+    <!-- ── On-chain Stellar profile ───────────────────────────────── -->
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">🌐 Stellar Profile (On-Chain)</h5>
+                {% if merchant.last_synced_at %}
+                <small class="text-white-50">synced {{ merchant.last_synced_at|timesince }} ago</small>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if onchain_profile %}
+                    <table class="table table-sm mb-3">
+                        <tbody>
+                        {% for key, value in onchain_profile.items %}
+                        <tr>
+                            <th class="text-muted fw-normal small" style="width:35%">{{ key }}</th>
+                            <td class="small fw-semibold">{{ value }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% if data_keys %}
+                    <p class="text-muted small mb-0"><strong>Keys present:</strong> {{ data_keys|join:", " }}</p>
+                    {% endif %}
+                {% else %}
+                    <div class="alert alert-warning small">
+                        <strong>Could not load on-chain profile.</strong><br>
+                        Showing cached data:
+                        <ul class="mb-0 mt-1">
+                            <li>Username: {{ merchant.cached_username }}</li>
+                            <li>Business: {{ merchant.cached_business_name }}</li>
+                        </ul>
+                    </div>
+                {% endif %}
+                <hr>
+                <p class="small mb-0">
+                    <strong>Public Key:</strong><br>
+                    <code class="small">{{ merchant.stellar_public_key }}</code><br>
+                    <a href="{{ explorer_url }}/account/{{ merchant.stellar_public_key }}" target="_blank" class="small">
+                        View on Explorer ↗
+                    </a>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Stellar wallet balances ────────────────────────────────── -->
+    <div class="col-md-4">
         <div class="card shadow-sm h-100">
             <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">💰 Your Stellar Wallet</h5>
@@ -32,22 +79,23 @@
                     <input type="text" class="form-control font-monospace small bg-light" value="{{ merchant.stellar_public_key }}" readonly id="publicKey">
                     <button class="btn btn-outline-secondary" type="button" onclick="copyText('publicKey')">Copy</button>
                 </div>
-                
+
                 <h6>Real-time Balances:</h6>
                 <div id="balance-loading" class="py-3">
                     <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-                    <span class="ms-2">Fetching balances from Horizon...</span>
+                    <span class="ms-2">Fetching balances from Horizon…</span>
                 </div>
                 <div id="balance-container" style="display: none;">
                     <div class="row row-cols-1 row-cols-md-2 g-3" id="balance-list">
-                        <!-- Balances will be loaded here via JS -->
+                        <!-- Balances loaded via JS -->
                     </div>
                 </div>
             </div>
         </div>
     </div>
-    
-    <div class="col-md-5">
+
+    <!-- ── Payment link ────────────────────────────────────────────── -->
+    <div class="col-md-4">
         <div class="card shadow-sm h-100">
             <div class="card-header bg-success text-white">
                 <h5 class="mb-0">📱 Your Payment Link</h5>
@@ -56,13 +104,17 @@
                 <p>Share this link with customers to receive payments directly to your wallet.</p>
                 <div class="input-group mb-3">
                     {% with payment_url=request.build_absolute_uri|cut:'dashboard/'|add:'pay/' %}
-                    <input type="text" class="form-control" value="{{ payment_url }}?merchant={{ merchant.username }}" id="payment-link" readonly>
+                    <input type="text" class="form-control" value="{{ payment_url }}?merchant={{ merchant.cached_username }}" id="payment-link" readonly>
                     <button class="btn btn-outline-secondary" type="button" onclick="copyText('payment-link')">Copy</button>
                     {% endwith %}
                 </div>
                 <div class="alert alert-light border small">
-                    <p class="mb-0"><strong>Tip:</strong> You can also just tell customers to search for your username <strong>{{ merchant.username }}</strong> on the payment page.</p>
+                    <p class="mb-0"><strong>Tip:</strong> You can also tell customers to search for your username
+                    <strong>{{ merchant.cached_username }}</strong> on the payment page.</p>
                 </div>
+                {% if phone %}
+                <p class="small text-muted mb-0">📞 On-chain phone: {{ phone }}</p>
+                {% endif %}
             </div>
         </div>
     </div>

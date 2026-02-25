@@ -1,37 +1,51 @@
 from django.contrib.auth.models import User
 from django.db import models
 from django.conf import settings
-from cryptography.fernet import Fernet
-import base64
+
 
 class Merchant(models.Model):
+    """
+    Custodial merchant profile.
+
+    Public identity data (username, business name, phone) lives on the Stellar
+    ledger as ManageData entries.  This model stores only:
+      - The encrypted Stellar secret key (useless without SECRET_KEY env var)
+      - Read-through cache fields so the app can work even when Horizon is slow
+      - A timestamp tracking the last successful sync from the ledger
+    """
+
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    business_name = models.CharField(max_length=200)
-    phone_number = models.CharField(max_length=15)
-    username = models.CharField(max_length=50, unique=True)  # e.g., @mama_cafe
     stellar_public_key = models.CharField(max_length=56, unique=True)
     stellar_secret_encrypted = models.TextField()
+    last_synced_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Local cache of on-chain data — populated on registration and refreshed on
+    # every dashboard load.  Never used as a source-of-truth; Stellar ledger wins.
+    cached_username = models.CharField(max_length=50, blank=True, null=True)
+    cached_business_name = models.CharField(max_length=200, blank=True, null=True)
+
     def __str__(self):
-        return self.username
-    
+        return self.cached_username or self.user.username
+
     def get_explorer_url(self):
-        """Return account URL on Testnet Explorer"""
+        """Return account URL on Testnet Explorer."""
         return f"{settings.TESTNET_EXPLORER_URL}/account/{self.stellar_public_key}"
 
-    def set_secret_key(self, raw_secret):
-        """Encrypt and store the secret key"""
-        # We use a derived key from Django's SECRET_KEY
-        key = base64.urlsafe_b64encode(settings.SECRET_KEY[:32].encode().ljust(32))
-        f = Fernet(key)
-        self.stellar_secret_encrypted = f.encrypt(raw_secret.encode()).decode()
+    def set_secret_key(self, raw_secret: str) -> None:
+        """Encrypt and store the Stellar secret key."""
+        from .security import encrypt_secret
+        self.stellar_secret_encrypted = encrypt_secret(raw_secret)
 
-    def get_secret_key(self):
-        """Decrypt and return the secret key"""
-        key = base64.urlsafe_b64encode(settings.SECRET_KEY[:32].encode().ljust(32))
-        f = Fernet(key)
-        return f.decrypt(self.stellar_secret_encrypted.encode()).decode()
+    def get_secret_key(self) -> str:
+        """
+        Decrypt and return the Stellar secret key.
+
+        Use this ONLY immediately before signing a transaction.
+        Never log the returned value.
+        """
+        from .security import decrypt_secret
+        return decrypt_secret(self.stellar_secret_encrypted)
 
 class Transaction(models.Model):
     STATUS_CHOICES = [

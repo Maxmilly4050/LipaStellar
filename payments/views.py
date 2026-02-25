@@ -1,10 +1,17 @@
-from django.shortcuts import render, redirect, get_object_or_404
+import datetime
+import logging
+import time
+
+from decimal import Decimal
+
+from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from django.conf import settings
-from decimal import Decimal
-import datetime
+from django.shortcuts import render, redirect, get_object_or_404
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 from .models import Merchant, Transaction
 from .forms import MerchantRegistrationForm, CustomerPaymentForm
@@ -18,57 +25,127 @@ def index(request):
     return render(request, 'payments/index.html')
 
 def register(request):
-    """Merchant registration"""
+    """Merchant registration with on-chain profile storage."""
     if request.method == 'POST':
         form = MerchantRegistrationForm(request.POST)
         if form.is_valid():
-            # Create Django user
+            # 1. Create Django user
             user = form.save()
-            
-            # Generate Stellar account
+
+            # 2. Generate Stellar keypair and fund via Friendbot
             keypair = stellar_utils.generate_keypair()
-            
-            # Fund account on testnet and wait for it to be indexed
             if not stellar_utils.fund_account(keypair.public_key):
-                messages.error(request, f"Account creation failed. Friendbot was unable to fund {keypair.public_key}. Please try again.")
+                messages.error(
+                    request,
+                    f"Account creation failed — Friendbot could not fund "
+                    f"{keypair.public_key}. Please try again."
+                )
+                user.delete()  # roll back the Django user
                 return render(request, 'payments/merchant_register.html', {'form': form})
-            
-            # Create merchant record
+
+            # 3. Establish USDC trustline
+            try:
+                stellar_utils.create_trustline(
+                    keypair.secret, 'USDC', settings.USDC_ISSUER
+                )
+            except Exception as exc:
+                logger.warning("Trustline creation failed for %s: %s", keypair.public_key[:8], exc)
+                messages.warning(request, f"USDC trustline issue: {exc}")
+
+            # 4. Prepare on-chain profile data
+            profile_data = {
+                stellar_utils.DATA_KEY_USERNAME: form.cleaned_data['username'],
+                stellar_utils.DATA_KEY_BUSINESS: form.cleaned_data['business_name'][:60],
+                stellar_utils.DATA_KEY_PHONE:    form.cleaned_data['phone_number'][:60],
+                stellar_utils.DATA_KEY_CREATED:  str(int(time.time())),
+            }
+
+            # 5. Store profile on Stellar ledger (with retry)
+            tx_hash = None
+            for attempt in range(3):
+                try:
+                    tx_hash = stellar_utils.store_merchant_profile(
+                        keypair.secret, profile_data
+                    )
+                    break
+                except Exception as exc:
+                    if attempt == 2:
+                        logger.error("Profile storage failed for new merchant: %s", exc)
+                        messages.error(
+                            request,
+                            "Failed to store your profile on the Stellar blockchain. "
+                            "Please contact support."
+                        )
+                        user.delete()  # roll back
+                        return render(request, 'payments/merchant_register.html', {'form': form})
+                    time.sleep(2 ** attempt)
+
+            # 6. Persist ONLY the encrypted secret to PostgreSQL
             merchant = Merchant(
                 user=user,
-                business_name=form.cleaned_data['business_name'],
-                phone_number=form.cleaned_data['phone_number'],
-                username=form.cleaned_data['username'],
-                stellar_public_key=keypair.public_key
+                stellar_public_key=keypair.public_key,
+                cached_username=form.cleaned_data['username'],
+                cached_business_name=form.cleaned_data['business_name'],
             )
-            merchant.set_secret_key(keypair.secret)  # Encrypt and store
+            merchant.set_secret_key(keypair.secret)  # encrypts via security.py
             merchant.save()
-            
-            # Log the user in
+
+            # 7. Log in and redirect
             login(request, user)
-            messages.success(request, "Registration successful! Your Stellar wallet has been created and funded with Testnet XLM.")
+            messages.success(
+                request,
+                "Registration successful! Your public profile is now stored on "
+                "the Stellar blockchain."
+            )
             return redirect('dashboard')
     else:
         form = MerchantRegistrationForm()
-    
+
     return render(request, 'payments/merchant_register.html', {'form': form})
 
 @login_required
 def dashboard(request):
-    """Merchant dashboard"""
+    """Merchant dashboard — fetches live profile from the Stellar ledger."""
     try:
         merchant = request.user.merchant
     except Merchant.DoesNotExist:
         messages.error(request, "Merchant profile not found.")
         return redirect('index')
-    
+
+    # Fetch fresh profile from Stellar and update local cache
+    onchain_profile = None
+    try:
+        onchain_profile = stellar_utils.get_merchant_profile(
+            merchant.stellar_public_key
+        )
+        if onchain_profile:
+            merchant.cached_username = onchain_profile.get(stellar_utils.DATA_KEY_USERNAME, merchant.cached_username)
+            merchant.cached_business_name = onchain_profile.get(stellar_utils.DATA_KEY_BUSINESS, merchant.cached_business_name)
+            merchant.save(update_fields=['cached_username', 'cached_business_name', 'last_synced_at'])
+    except Exception as exc:
+        logger.error("Failed to fetch Stellar profile for %s: %s", merchant.stellar_public_key[:8], exc)
+        messages.warning(request, "Could not sync profile from Stellar. Showing cached data.")
+
+    # Fetch phone separately if we have a full profile
+    phone = None
+    if onchain_profile:
+        phone = onchain_profile.get(stellar_utils.DATA_KEY_PHONE)
+    else:
+        phone = stellar_utils.get_merchant_phone(merchant.stellar_public_key)
+
     # Get recent transactions
-    transactions = Transaction.objects.filter(merchant=merchant).order_by('-created_at')[:10]
-    
+    transactions = Transaction.objects.filter(
+        merchant=merchant
+    ).order_by('-created_at')[:10]
+
     context = {
         'merchant': merchant,
+        'onchain_profile': onchain_profile,
+        'phone': phone,
         'transactions': transactions,
         'explorer_url': settings.TESTNET_EXPLORER_URL,
+        'data_keys': stellar_utils.get_all_data_keys(merchant.stellar_public_key)
+                     if onchain_profile else [],
     }
     return render(request, 'payments/merchant_dashboard.html', context)
 
@@ -94,8 +171,36 @@ def payment_form(request):
             amount_tzs = form.cleaned_data['amount_tzs']
             customer_phone = form.cleaned_data['customer_phone']
             
-            # Look up merchant
-            merchant = Merchant.objects.get(username=username)
+            # Look up merchant by cached username
+            try:
+                merchant = Merchant.objects.get(cached_username=username)
+            except Merchant.DoesNotExist:
+                messages.error(request, "Merchant not found.")
+                return render(request, 'payments/payment_form.html', {'form': form})
+
+            # Cross-verify username against on-chain ledger data
+            try:
+                is_verified = stellar_utils.verify_merchant_username(
+                    merchant.stellar_public_key, username
+                )
+                if not is_verified:
+                    logger.warning(
+                        "Username mismatch for account %s (claimed: %s)",
+                        merchant.stellar_public_key[:8],
+                        username,
+                    )
+                    messages.error(
+                        request,
+                        "Merchant verification failed. "
+                        "Please try again or contact support."
+                    )
+                    return render(request, 'payments/payment_form.html', {'form': form})
+            except Exception as exc:
+                logger.error("On-chain verification error: %s", exc)
+                messages.warning(
+                    request,
+                    "Unable to verify merchant on the blockchain. Proceed with caution."
+                )
             
             # Convert TZS to XLM and round to 7 decimal places for Stellar SDK
             amount_xlm = (amount_tzs / TZS_PER_XLM).quantize(Decimal('0.0000001'))
@@ -110,7 +215,8 @@ def payment_form(request):
                         merchant_payer = request.user.merchant
                         from_secret = merchant_payer.get_secret_key()
                         from_public = merchant_payer.stellar_public_key
-                        payer_label = f"Merchant: {merchant_payer.business_name}"
+                        payer_label = f"Merchant: {merchant_payer.cached_business_name or merchant_payer.cached_username}"
+                        # use cached fields — business_name is now on Stellar ledger
                     except Merchant.DoesNotExist:
                         # Fallback for generic authenticated users if no merchant profile
                         customer = stellar_utils.get_or_create_customer_account()

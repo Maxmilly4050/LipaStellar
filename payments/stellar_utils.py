@@ -1,13 +1,62 @@
-from stellar_sdk import Server, Keypair, TransactionBuilder, Asset, Network
-from stellar_sdk.exceptions import NotFoundError
-from django.conf import settings
-import requests
-import os
+"""
+Stellar utilities for LipaStellar.
 
-def get_server():
+On-chain storage model
+----------------------
+Merchant public identity is stored on the Stellar ledger as ManageData entries:
+
+  Key            Max length    Description
+  ─────────────  ──────────    ───────────────────────────────────────────
+  "username"     50 chars      Merchant username  (e.g. @mama_cafe)
+  "business"     60 chars      Business / trading name
+  "phone"        60 chars      Contact phone number
+  "created"      10 chars      Unix timestamp of registration
+  "website"      64 chars      Optional website URL
+  "desc"         64 chars      Optional short description
+
+Stellar restricts every ManageData value to 64 bytes.  Values exceeding this
+limit are silently truncated with a warning logged.
+
+Data retrieval
+--------------
+  get_merchant_profile(public_key)          → full dict of all entries
+  get_single_data_entry(public_key, key)    → single decoded value
+  get_merchant_username / _business_name / _phone  → convenience wrappers
+  verify_merchant_username(pub, username)   → boolean cross-check
+  get_all_data_keys(public_key)             → list of present keys
+  account_has_data_entry(pub, key)          → boolean existence check
+"""
+
+import base64
+import logging
+import os
+import time
+from decimal import Decimal
+
+import requests
+from django.conf import settings
+from stellar_sdk import Asset, Keypair, Network, Server, TransactionBuilder
+from stellar_sdk.exceptions import BadRequestError, NotFoundError
+
+logger = logging.getLogger(__name__)
+
+# ── On-chain data key constants ──────────────────────────────────────────────
+DATA_KEY_USERNAME = "username"
+DATA_KEY_BUSINESS = "business"
+DATA_KEY_PHONE    = "phone"
+DATA_KEY_CREATED  = "created"
+DATA_KEY_WEBSITE  = "website"
+DATA_KEY_DESC     = "desc"
+
+# Maximum bytes per ManageData value (Stellar protocol limit)
+_MAX_DATA_BYTES = 64
+
+
+def get_server() -> Server:
     return Server(settings.STELLAR_HORIZON_URL)
 
-def get_network_passphrase():
+
+def get_network_passphrase() -> str:
     return settings.STELLAR_NETWORK_PASSPHRASE
 
 def generate_keypair():
@@ -234,3 +283,337 @@ def get_transaction_from_hash(tx_hash):
         return tx
     except:
         return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ManageData — on-chain storage for merchant profiles
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Storage ──────────────────────────────────────────────────────────────────
+
+def store_merchant_profile(secret_key: str, profile_data: dict) -> str:
+    """
+    Store merchant profile fields on the Stellar ledger using ManageData ops.
+
+    Each key/value pair in *profile_data* becomes a separate ManageData entry
+    on the merchant's Stellar account.  Values longer than 64 bytes are
+    automatically truncated (Stellar protocol limit).
+
+    Args:
+        secret_key:   Merchant's Stellar secret key (decrypted, used briefly).
+        profile_data: Dict mapping data-key constants to string values, e.g.:
+                        {DATA_KEY_USERNAME: "mama_cafe", DATA_KEY_BUSINESS: "Mama Café", …}
+
+    Returns:
+        transaction_hash of the submitted transaction.
+
+    Raises:
+        ValueError:  No valid entries, or insufficient XLM reserve.
+        NotFoundError: Account not on the network yet.
+        Exception:   Network / Horizon errors after all retries exhausted.
+    """
+    server = get_server()
+    keypair = Keypair.from_secret(secret_key)
+
+    try:
+        account = server.load_account(keypair.public_key)
+    except NotFoundError:
+        raise Exception(
+            f"Stellar account {keypair.public_key[:8]}… not found. "
+            "Ensure it has been funded via Friendbot before registration."
+        )
+
+    # Validate and prepare data entries
+    data_entries: list[tuple[str, str]] = []
+    warnings: list[str] = []
+
+    for key, value in profile_data.items():
+        if value is None:
+            continue
+        str_value = str(value)
+        encoded = str_value.encode("utf-8")
+        if len(encoded) > _MAX_DATA_BYTES:
+            truncated = encoded[:_MAX_DATA_BYTES].decode("utf-8", errors="ignore")
+            warnings.append(f"Field '{key}' truncated from {len(encoded)} to {_MAX_DATA_BYTES} bytes")
+            str_value = truncated
+        data_entries.append((key, str_value))
+
+    if not data_entries:
+        raise ValueError("No valid data to store — profile_data was empty or all-None.")
+
+    # Verify sufficient XLM for new reserve requirements
+    account_info = server.accounts().account_id(keypair.public_key).call()
+    current_balance = 0.0
+    for bal in account_info["balances"]:
+        if bal["asset_type"] == "native":
+            current_balance = float(bal["balance"])
+            break
+
+    existing_entries = len(account_info.get("data", {}))
+    new_entries = sum(
+        1 for k, _ in data_entries
+        if k not in account_info.get("data", {})
+    )
+    # Each new ManageData entry raises the minimum reserve by 0.5 XLM
+    extra_reserve_needed = 0.5 * new_entries
+    buffer = 1.0  # Always keep 1 XLM free for fees
+    if current_balance < extra_reserve_needed + buffer:
+        raise ValueError(
+            f"Insufficient XLM balance ({current_balance:.7f} XLM). "
+            f"Need at least {extra_reserve_needed + buffer:.1f} XLM "
+            f"({new_entries} new entries × 0.5 XLM reserve + {buffer} XLM buffer)."
+        )
+
+    # Build transaction — all ManageData ops in a single transaction
+    tx_builder = TransactionBuilder(
+        source_account=account,
+        network_passphrase=get_network_passphrase(),
+        base_fee=100,
+    )
+    for key, value in data_entries:
+        tx_builder.append_manage_data_op(data_name=key, data_value=value.encode("utf-8"))
+    tx_builder.set_timeout(30)
+    transaction = tx_builder.build()
+    transaction.sign(keypair)
+
+    # Submit with exponential-backoff retries
+    max_retries = 3
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            response = server.submit_transaction(transaction)
+            if warnings:
+                logger.warning("store_merchant_profile warnings: %s", warnings)
+            logger.info(
+                "Stored profile for %s… tx=%s",
+                keypair.public_key[:8],
+                response["hash"][:8],
+            )
+            return response["hash"]
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                logger.warning("Submit attempt %d failed (%s), retrying in %ds…", attempt + 1, exc, wait)
+                time.sleep(wait)
+
+    raise last_exc  # type: ignore[misc]
+
+
+# ── Retrieval — full profile ──────────────────────────────────────────────────
+
+def get_merchant_profile(public_key: str) -> dict | None:
+    """
+    Retrieve all ManageData entries from a Stellar account.
+
+    Horizon stores values as base64; this function decodes them back to UTF-8
+    strings.  Returns *None* if the account does not exist.
+
+    Usage:
+        profile = get_merchant_profile(merchant.stellar_public_key)
+        username = profile.get(DATA_KEY_USERNAME)
+        business = profile.get(DATA_KEY_BUSINESS)
+
+    Returns:
+        Dict mapping key → decoded string, or {} if no data entries, or None
+        if the account is not found.
+    """
+    server = get_server()
+    try:
+        account = server.accounts().account_id(public_key).call()
+        raw_data: dict = account.get("data", {})
+
+        if not raw_data:
+            logger.info("No ManageData entries on account %s…", public_key[:8])
+            return {}
+
+        profile: dict[str, str | None] = {}
+        for key, value_b64 in raw_data.items():
+            try:
+                decoded_bytes = base64.b64decode(value_b64)
+                profile[key] = decoded_bytes.decode("utf-8")
+                logger.debug("Decoded '%s': %s…", key, profile[key][:20])
+            except UnicodeDecodeError:
+                profile[key] = "[binary data]"
+            except Exception as exc:
+                logger.warning("Failed to decode ManageData key '%s': %s", key, exc)
+                profile[key] = None
+
+        return profile
+
+    except NotFoundError:
+        logger.error("Account not found on Horizon: %s", public_key)
+        return None
+    except Exception as exc:
+        logger.error("Error fetching account %s…: %s", public_key[:8], exc)
+        return None
+
+
+# ── Retrieval — single entry ──────────────────────────────────────────────────
+
+def get_single_data_entry(public_key: str, key_name: str) -> str | None:
+    """
+    Retrieve a single ManageData value by key name.
+
+    More efficient than get_merchant_profile() when only one field is needed
+    because it hits the Horizon ``/accounts/{id}/data/{key}`` endpoint directly.
+
+    Args:
+        public_key: Stellar G-address of the merchant.
+        key_name:   One of the DATA_KEY_* constants (or any custom key).
+
+    Returns:
+        Decoded UTF-8 string, or None if the key does not exist.
+    """
+    server = get_server()
+    try:
+        response = server.accounts().data(public_key, key_name).call()
+        value_b64 = response.get("value")
+        if not value_b64:
+            return None
+        return base64.b64decode(value_b64).decode("utf-8")
+    except NotFoundError:
+        return None
+    except Exception as exc:
+        # Some SDK versions surface HTTP 404 as a generic exception
+        if hasattr(exc, "status") and exc.status == 404:
+            return None
+        logger.error("Error fetching '%s' for %s…: %s", key_name, public_key[:8], exc)
+        return None
+
+
+# ── Retrieval — convenience wrappers ─────────────────────────────────────────
+
+def get_merchant_username(public_key: str) -> str | None:
+    """Return the on-chain username for *public_key*, or None."""
+    return get_single_data_entry(public_key, DATA_KEY_USERNAME)
+
+
+def get_merchant_business_name(public_key: str) -> str | None:
+    """Return the on-chain business name for *public_key*, or None."""
+    return get_single_data_entry(public_key, DATA_KEY_BUSINESS)
+
+
+def get_merchant_phone(public_key: str) -> str | None:
+    """Return the on-chain phone number for *public_key*, or None."""
+    return get_single_data_entry(public_key, DATA_KEY_PHONE)
+
+
+def verify_merchant_username(public_key: str, expected_username: str) -> bool:
+    """
+    Cross-check that the on-chain username matches *expected_username*.
+
+    Returns False if the key is missing or the values differ.
+    """
+    actual = get_single_data_entry(public_key, DATA_KEY_USERNAME)
+    return actual == expected_username
+
+
+def get_all_data_keys(public_key: str) -> list[str]:
+    """
+    Return the list of all ManageData key names present on *public_key*.
+    Useful for debugging and dashboard display.
+    """
+    server = get_server()
+    try:
+        account = server.accounts().account_id(public_key).call()
+        return list(account.get("data", {}).keys())
+    except Exception as exc:
+        logger.error("Error fetching data keys for %s…: %s", public_key[:8], exc)
+        return []
+
+
+def account_has_data_entry(public_key: str, key_name: str) -> bool:
+    """Return True if *key_name* exists on the account's ManageData."""
+    return get_single_data_entry(public_key, key_name) is not None
+
+
+# ── Update ────────────────────────────────────────────────────────────────────
+
+def update_merchant_profile(secret_key: str, updates_dict: dict) -> str:
+    """
+    Update specific ManageData fields without touching others.
+
+    Pass ``None`` as a value to delete that key from the ledger.
+
+    Args:
+        secret_key:   Merchant's Stellar secret (decrypted, used briefly).
+        updates_dict: Dict of {key: new_value_or_None}.
+
+    Returns:
+        transaction_hash.
+    """
+    server = get_server()
+    keypair = Keypair.from_secret(secret_key)
+    account = server.load_account(keypair.public_key)
+
+    tx_builder = TransactionBuilder(
+        source_account=account,
+        network_passphrase=get_network_passphrase(),
+        base_fee=100,
+    )
+
+    for key, value in updates_dict.items():
+        if value is None:
+            # Setting data_value=None removes the ManageData entry
+            tx_builder.append_manage_data_op(data_name=key, data_value=None)
+        else:
+            str_value = str(value).encode("utf-8")[:_MAX_DATA_BYTES].decode("utf-8", errors="ignore")
+            tx_builder.append_manage_data_op(
+                data_name=key,
+                data_value=str_value.encode("utf-8"),
+            )
+
+    tx_builder.set_timeout(30)
+    transaction = tx_builder.build()
+    transaction.sign(keypair)
+
+    response = server.submit_transaction(transaction)
+    logger.info(
+        "Updated profile for %s… fields=%s tx=%s",
+        keypair.public_key[:8],
+        list(updates_dict.keys()),
+        response["hash"][:8],
+    )
+    return response["hash"]
+
+
+# ── XLM reserve utilities ─────────────────────────────────────────────────────
+
+def has_sufficient_xlm_for_data(public_key: str, num_new_entries: int = 1) -> bool:
+    """
+    Check whether *public_key* can afford *num_new_entries* new ManageData ops.
+
+    Each new entry increases the minimum balance by 0.5 XLM.
+
+    Returns:
+        True if the account has enough XLM (with a 0.5 XLM safety buffer).
+    """
+    server = get_server()
+    try:
+        account = server.accounts().account_id(public_key).call()
+        current_balance = 0.0
+        for bal in account["balances"]:
+            if bal["asset_type"] == "native":
+                current_balance = float(bal["balance"])
+                break
+
+        existing_entries = len(account.get("data", {}))
+        # Base minimum reserve = 0.5 XLM (account) + 0.5 per existing entry
+        required = 0.5 * (1 + existing_entries + num_new_entries) + 0.5  # 0.5 buffer
+        return current_balance >= required
+
+    except Exception as exc:
+        logger.error("Error checking XLM balance for %s…: %s", public_key[:8], exc)
+        return False
+
+
+def get_account_data_summary(public_key: str) -> str:
+    """
+    Return a human-readable string of all ManageData entries.
+    Useful for CLI debugging and management commands.
+    """
+    profile = get_merchant_profile(public_key)
+    if not profile:
+        return "No ManageData entries found."
+    return "\n".join(f"  {k}: {v}" for k, v in profile.items())
